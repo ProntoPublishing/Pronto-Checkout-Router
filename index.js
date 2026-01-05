@@ -23,11 +23,11 @@ const limiter = rateLimit({
 // SKU to Stripe Price ID mapping
 // These SKUs match what Tally sends in the services parameter
 const PRICE_BY_SKU = {
-  'MANUSCRIPT': 'price_1Sku587uZCk6xNoP3Kmujdxi', // Manuscript Processing - $1.00
-  'INTFMT': 'price_1Sku587uZCk6xNoP3Kmujdxi',     // Interior Formatting - $1.00
+  'MANUSCRIPT': 'price_1Sku5B7uZCk6xNoP3Kmuj4xi', // Manuscript Processing - $1.00
+  'INTFMT': 'price_1Sku5B7uZCk6xNoP3Kmuj4xi',     // Interior Formatting - $1.00
   'COVER': 'price_1Sku677uZCk6xNoP7kwzbTKE',      // Cover Design - $1.00
-  'KDPPREP': 'price_1Sku787uZCk6xNoP7PbsdNnw',    // KDP Upload Preparation - $1.00
-  'DELIVERY': 'price_1Sku587uZCk6xNoP3Kmujdxi',   // Delivery Package - $1.00
+  'KDPPREP': 'price_1Sku7B7uZCk6xNoP7PbsdNnw',    // KDP Upload Preparation - $1.00
+  'DELIVERY': 'price_1Sku5B7uZCk6xNoP3Kmuj4xi',   // Delivery Package - $1.00
 };
 
 // Human-readable service names for logging
