@@ -25,7 +25,7 @@ const limiter = rateLimit({
 const PRICE_BY_SKU = {
   'INTFMT': 'price_1Sku5B7uZCk6xNoP3Kmuj4xi',     // Interior Formatting - $1.00
   'COVER': 'price_1Sku677uZCk6xNoP7kwzbTKE',      // Cover Design - $1.00
-  'KDPPREP': 'price_1Sku7B7uZCk6xNoP7PbsdNnw',    // KDP Upload Preparation - $1.00
+  'KDPPREP': 'price_1SnP9N7uZCk6xNoPQgmnJFtw',    // KDP Upload Preparation - $1.00
 };
 
 // Human-readable service names for logging
