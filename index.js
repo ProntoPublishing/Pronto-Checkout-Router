@@ -58,6 +58,9 @@ function parseSkus(servicesParam) {
     .map(s => s.trim())
     .filter(Boolean);
   
+  console.log(`[CHECKOUT] Raw services after split: ${JSON.stringify(rawServices)}`);
+  console.log(`[CHECKOUT] Number of services: ${rawServices.length}`);
+  
   // Convert each service to SKU format
   const skus = rawServices.map(service => {
     console.log(`[CHECKOUT] Processing service: "${service}"`);
@@ -183,7 +186,10 @@ app.get('/checkout', limiter, async (req, res) => {
     console.log(`[CHECKOUT] ========================================`);
     console.log(`[CHECKOUT] New checkout request`);
     console.log(`[CHECKOUT] Submission ID: ${sid}`);
-    console.log(`[CHECKOUT] Services (raw): ${services}`);
+    console.log(`[CHECKOUT] Services (raw): "${services}"`);
+    console.log(`[CHECKOUT] Services length: ${services.length}`);
+    console.log(`[CHECKOUT] Services type: ${typeof services}`);
+    console.log(`[CHECKOUT] Services char codes:`, [...services].map(c => c.charCodeAt(0)).join(','));
     console.log(`[CHECKOUT] Email: ${email || 'not provided'}`);
     
     // Validate submission ID
