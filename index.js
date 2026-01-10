@@ -21,11 +21,10 @@ const limiter = rateLimit({
 });
 
 // SKU to Stripe Price ID mapping
-// These SKUs match what Tally sends in the services parameter
 const PRICE_BY_SKU = {
-  'INTFMT': 'price_1Sku5B7uZCk6xNoP3Kmuj4xi',     // Interior Formatting - $1.00
+  'INTFMT': 'price_1Sku587uZCk6xNoP3Kmujdxi',     // Interior Formatting - $1.00
   'COVER': 'price_1Sku677uZCk6xNoP7kwzbTKE',      // Cover Design - $1.00
-  'KDPPREP': 'price_1SnP9N7uZCk6xNoPQgmnJFtw',    // KDP Upload Preparation - $1.00
+  'KDPPREP': 'price_1Sku787uZCk6xNoP7PbsdNnw',    // KDP Upload Preparation - $1.00
 };
 
 // Human-readable service names for logging
@@ -35,13 +34,26 @@ const SERVICE_NAMES = {
   'KDPPREP': 'KDP Upload Preparation',
 };
 
+// Mapping from Tally display text to SKUs
+// This allows Tally to send user-friendly text like "Interior Formatting — $149"
+// and we'll convert it to the internal SKU "INTFMT"
+const DISPLAY_TEXT_TO_SKU = {
+  'Interior Formatting — $149': 'INTFMT',
+  'Interior Formatting': 'INTFMT',
+  'Cover Design — $199': 'COVER',
+  'Cover Design': 'COVER',
+  'KDP Upload Preparation — $99': 'KDPPREP',
+  'KDP Upload Preparation': 'KDPPREP',
+};
+
 // Configuration
 const MAX_SERVICES_LENGTH = 500; // Prevent abuse with extremely long service strings
 const MAX_SKUS = 20; // Maximum number of services in one order
 
 /**
  * Parse and validate SKUs from the services query parameter
- * @param {string} servicesParam - Comma-separated SKUs from Tally
+ * Handles both SKU format (INTFMT) and display text format (Interior Formatting — $149)
+ * @param {string} servicesParam - Comma-separated SKUs or display text from Tally
  * @returns {string[]} - Array of validated, uppercase, deduplicated SKUs
  */
 function parseSkus(servicesParam) {
@@ -52,10 +64,41 @@ function parseSkus(servicesParam) {
     throw new Error(`Services parameter too long (max ${MAX_SERVICES_LENGTH} characters)`);
   }
   
-  const skus = servicesParam
+  const rawServices = servicesParam
     .split(',')
-    .map(s => s.trim().toUpperCase())
+    .map(s => s.trim())
     .filter(Boolean);
+  
+  // Convert each service to SKU format
+  const skus = rawServices.map(service => {
+    // First check if it's already a SKU (uppercase alphanumeric)
+    const upperService = service.toUpperCase();
+    if (upperService in PRICE_BY_SKU) {
+      console.log(`[CHECKOUT] Matched SKU directly: ${service} → ${upperService}`);
+      return upperService;
+    }
+    
+    // Check if it matches a display text mapping (exact match)
+    if (service in DISPLAY_TEXT_TO_SKU) {
+      const sku = DISPLAY_TEXT_TO_SKU[service];
+      console.log(`[CHECKOUT] Mapped display text: "${service}" → ${sku}`);
+      return sku;
+    }
+    
+    // Try case-insensitive match for display text
+    const lowerService = service.toLowerCase();
+    for (const [displayText, sku] of Object.entries(DISPLAY_TEXT_TO_SKU)) {
+      if (displayText.toLowerCase() === lowerService) {
+        console.log(`[CHECKOUT] Mapped display text (case-insensitive): "${service}" → ${sku}`);
+        return sku;
+      }
+    }
+    
+    // If we can't map it, throw an error with helpful message
+    console.error(`[CHECKOUT] Unknown service: "${service}"`);
+    console.error(`[CHECKOUT] Available mappings:`, Object.keys(DISPLAY_TEXT_TO_SKU));
+    throw new Error(`Unknown service: ${service}`);
+  });
   
   // Remove duplicates (using Set)
   const uniqueSkus = [...new Set(skus)];
@@ -91,7 +134,6 @@ function buildLineItems(skus) {
     const priceId = PRICE_BY_SKU[sku];
     
     // All services are paid for MVP ($1.00 each)
-    // If you want to support free services later, check for null here
     if (!priceId) {
       console.log(`[CHECKOUT] Warning: No price ID for SKU: ${sku}`);
       continue;
@@ -115,9 +157,10 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'pronto-checkout-router',
-    version: '1.0.1',
+    version: '1.1.0',
     timestamp: new Date().toISOString(),
     services_configured: Object.keys(PRICE_BY_SKU).length,
+    accepts_display_text: true,
   });
 });
 
@@ -134,7 +177,11 @@ app.get('/checkout', limiter, async (req, res) => {
     const services = String(req.query.services || '').trim();
     const email = req.query.email ? String(req.query.email).trim() : null;
     
-    console.log(`[CHECKOUT] Request received - sid: ${sid}, services: ${services}`);
+    console.log(`[CHECKOUT] ========================================`);
+    console.log(`[CHECKOUT] New checkout request`);
+    console.log(`[CHECKOUT] Submission ID: ${sid}`);
+    console.log(`[CHECKOUT] Services (raw): ${services}`);
+    console.log(`[CHECKOUT] Email: ${email || 'not provided'}`);
     
     // Validate submission ID
     if (!sid) {
@@ -148,7 +195,7 @@ app.get('/checkout', limiter, async (req, res) => {
       return res.status(400).send('Invalid submission ID');
     }
     
-    // Parse and validate SKUs (includes deduplication)
+    // Parse and validate SKUs (includes deduplication and display text mapping)
     const skus = parseSkus(services);
     if (skus.length === 0) {
       console.error('[CHECKOUT] Error: No services selected');
@@ -165,7 +212,6 @@ app.get('/checkout', limiter, async (req, res) => {
       console.log('[CHECKOUT] All selected services are free - redirecting to thank you page');
       
       // If all services are free, redirect directly to thank you page
-      // No payment needed
       const thankYouUrl = `${process.env.SUCCESS_URL}?sid=${encodeURIComponent(sid)}&free=true`;
       return res.redirect(303, thankYouUrl);
     }
@@ -188,17 +234,19 @@ app.get('/checkout', limiter, async (req, res) => {
     });
     
     const duration = Date.now() - startTime;
-    console.log(`[CHECKOUT] Success - Session created: ${session.id} (${duration}ms)`);
+    console.log(`[CHECKOUT] ✅ Success - Session created: ${session.id} (${duration}ms)`);
     console.log(`[CHECKOUT] Metadata: sid=${sid}, skus=${skus.join(',')}`);
-    console.log(`[CHECKOUT] Redirecting to: ${session.url}`);
+    console.log(`[CHECKOUT] Redirecting to Stripe: ${session.url}`);
+    console.log(`[CHECKOUT] ========================================`);
     
     // 303 redirect to Stripe Checkout
     return res.redirect(303, session.url);
     
   } catch (err) {
     const duration = Date.now() - startTime;
-    console.error(`[CHECKOUT] Error after ${duration}ms:`, err.message);
+    console.error(`[CHECKOUT] ❌ Error after ${duration}ms:`, err.message);
     console.error(err.stack);
+    console.log(`[CHECKOUT] ========================================`);
     
     // Send user-friendly error message
     return res.status(500).send(
@@ -221,12 +269,16 @@ app.use((req, res) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Pronto Checkout Router v1.0.1 running on port ${PORT}`);
+  console.log(`🚀 Pronto Checkout Router v1.1.0 running on port ${PORT}`);
   console.log(`📋 Service Catalog loaded with ${Object.keys(PRICE_BY_SKU).length} services`);
   console.log(`🔒 Rate limiting enabled: 100 requests per 15 minutes per IP`);
   console.log(`✅ Ready to accept checkout requests`);
   console.log(`\nConfigured services:`);
   Object.keys(PRICE_BY_SKU).forEach(sku => {
     console.log(`  - ${sku}: ${SERVICE_NAMES[sku] || 'Unknown'}`);
+  });
+  console.log(`\nAccepts display text formats:`);
+  Object.keys(DISPLAY_TEXT_TO_SKU).forEach(displayText => {
+    console.log(`  - "${displayText}" → ${DISPLAY_TEXT_TO_SKU[displayText]}`);
   });
 });
