@@ -34,18 +34,6 @@ const SERVICE_NAMES = {
   'KDPPREP': 'KDP Upload Preparation',
 };
 
-// Mapping from Tally display text to SKUs
-// This allows Tally to send user-friendly text like "Interior Formatting — $149"
-// and we'll convert it to the internal SKU "INTFMT"
-const DISPLAY_TEXT_TO_SKU = {
-  'Interior Formatting — $149': 'INTFMT',
-  'Interior Formatting': 'INTFMT',
-  'Cover Design — $199': 'COVER',
-  'Cover Design': 'COVER',
-  'KDP Upload Preparation — $99': 'KDPPREP',
-  'KDP Upload Preparation': 'KDPPREP',
-};
-
 // Configuration
 const MAX_SERVICES_LENGTH = 500; // Prevent abuse with extremely long service strings
 const MAX_SKUS = 20; // Maximum number of services in one order
@@ -53,6 +41,7 @@ const MAX_SKUS = 20; // Maximum number of services in one order
 /**
  * Parse and validate SKUs from the services query parameter
  * Handles both SKU format (INTFMT) and display text format (Interior Formatting — $149)
+ * Uses fuzzy matching to handle variations in spacing, pricing, etc.
  * @param {string} servicesParam - Comma-separated SKUs or display text from Tally
  * @returns {string[]} - Array of validated, uppercase, deduplicated SKUs
  */
@@ -71,32 +60,45 @@ function parseSkus(servicesParam) {
   
   // Convert each service to SKU format
   const skus = rawServices.map(service => {
+    console.log(`[CHECKOUT] Processing service: "${service}"`);
+    
     // First check if it's already a SKU (uppercase alphanumeric)
     const upperService = service.toUpperCase();
     if (upperService in PRICE_BY_SKU) {
-      console.log(`[CHECKOUT] Matched SKU directly: ${service} → ${upperService}`);
+      console.log(`[CHECKOUT] ✓ Matched SKU directly: ${service} → ${upperService}`);
       return upperService;
     }
     
-    // Check if it matches a display text mapping (exact match)
-    if (service in DISPLAY_TEXT_TO_SKU) {
-      const sku = DISPLAY_TEXT_TO_SKU[service];
-      console.log(`[CHECKOUT] Mapped display text: "${service}" → ${sku}`);
-      return sku;
+    // Normalize the service string for fuzzy matching:
+    // - Collapse multiple spaces into one
+    // - Convert to lowercase
+    // - Trim whitespace
+    const normalized = service.replace(/\s+/g, ' ').trim().toLowerCase();
+    console.log(`[CHECKOUT] Normalized: "${normalized}"`);
+    
+    // Fuzzy match: check if normalized string starts with known service names
+    if (normalized.startsWith('interior formatting')) {
+      console.log(`[CHECKOUT] ✓ Matched "Interior Formatting" (fuzzy): "${service}" → INTFMT`);
+      return 'INTFMT';
     }
     
-    // Try case-insensitive match for display text
-    const lowerService = service.toLowerCase();
-    for (const [displayText, sku] of Object.entries(DISPLAY_TEXT_TO_SKU)) {
-      if (displayText.toLowerCase() === lowerService) {
-        console.log(`[CHECKOUT] Mapped display text (case-insensitive): "${service}" → ${sku}`);
-        return sku;
-      }
+    if (normalized.startsWith('cover design')) {
+      console.log(`[CHECKOUT] ✓ Matched "Cover Design" (fuzzy): "${service}" → COVER`);
+      return 'COVER';
+    }
+    
+    if (normalized.startsWith('kdp upload preparation')) {
+      console.log(`[CHECKOUT] ✓ Matched "KDP Upload Preparation" (fuzzy): "${service}" → KDPPREP`);
+      return 'KDPPREP';
     }
     
     // If we can't map it, throw an error with helpful message
-    console.error(`[CHECKOUT] Unknown service: "${service}"`);
-    console.error(`[CHECKOUT] Available mappings:`, Object.keys(DISPLAY_TEXT_TO_SKU));
+    console.error(`[CHECKOUT] ❌ Unknown service: "${service}"`);
+    console.error(`[CHECKOUT] Normalized: "${normalized}"`);
+    console.error(`[CHECKOUT] Expected service names to start with:`);
+    console.error(`[CHECKOUT]   - "interior formatting"`);
+    console.error(`[CHECKOUT]   - "cover design"`);
+    console.error(`[CHECKOUT]   - "kdp upload preparation"`);
     throw new Error(`Unknown service: ${service}`);
   });
   
@@ -157,10 +159,11 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'pronto-checkout-router',
-    version: '1.1.0',
+    version: '1.2.0',
     timestamp: new Date().toISOString(),
     services_configured: Object.keys(PRICE_BY_SKU).length,
     accepts_display_text: true,
+    fuzzy_matching: true,
   });
 });
 
@@ -195,7 +198,7 @@ app.get('/checkout', limiter, async (req, res) => {
       return res.status(400).send('Invalid submission ID');
     }
     
-    // Parse and validate SKUs (includes deduplication and display text mapping)
+    // Parse and validate SKUs (includes deduplication and fuzzy matching)
     const skus = parseSkus(services);
     if (skus.length === 0) {
       console.error('[CHECKOUT] Error: No services selected');
@@ -269,16 +272,13 @@ app.use((req, res) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Pronto Checkout Router v1.1.0 running on port ${PORT}`);
+  console.log(`🚀 Pronto Checkout Router v1.2.0 running on port ${PORT}`);
   console.log(`📋 Service Catalog loaded with ${Object.keys(PRICE_BY_SKU).length} services`);
   console.log(`🔒 Rate limiting enabled: 100 requests per 15 minutes per IP`);
   console.log(`✅ Ready to accept checkout requests`);
+  console.log(`🔍 Fuzzy matching enabled for service names`);
   console.log(`\nConfigured services:`);
   Object.keys(PRICE_BY_SKU).forEach(sku => {
     console.log(`  - ${sku}: ${SERVICE_NAMES[sku] || 'Unknown'}`);
-  });
-  console.log(`\nAccepts display text formats:`);
-  Object.keys(DISPLAY_TEXT_TO_SKU).forEach(displayText => {
-    console.log(`  - "${displayText}" → ${DISPLAY_TEXT_TO_SKU[displayText]}`);
   });
 });
